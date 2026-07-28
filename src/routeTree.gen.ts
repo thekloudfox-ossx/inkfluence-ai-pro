@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BookBookIdRouteImport } from './routes/book.$bookId'
 import { Route as ApiGenerateImageRouteImport } from './routes/api/generate-image'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -23,6 +24,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BookBookIdRoute = BookBookIdRouteImport.update({
+  id: '/book/$bookId',
+  path: '/book/$bookId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiGenerateImageRoute = ApiGenerateImageRouteImport.update({
   id: '/api/generate-image',
   path: '/api/generate-image',
@@ -33,30 +39,39 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/generate-image': typeof ApiGenerateImageRoute
+  '/book/$bookId': typeof BookBookIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/generate-image': typeof ApiGenerateImageRoute
+  '/book/$bookId': typeof BookBookIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/generate-image': typeof ApiGenerateImageRoute
+  '/book/$bookId': typeof BookBookIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/sitemap.xml' | '/api/generate-image'
+  fullPaths: '/' | '/sitemap.xml' | '/api/generate-image' | '/book/$bookId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/sitemap.xml' | '/api/generate-image'
-  id: '__root__' | '/' | '/sitemap.xml' | '/api/generate-image'
+  to: '/' | '/sitemap.xml' | '/api/generate-image' | '/book/$bookId'
+  id:
+    | '__root__'
+    | '/'
+    | '/sitemap.xml'
+    | '/api/generate-image'
+    | '/book/$bookId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiGenerateImageRoute: typeof ApiGenerateImageRoute
+  BookBookIdRoute: typeof BookBookIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -75,6 +90,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/book/$bookId': {
+      id: '/book/$bookId'
+      path: '/book/$bookId'
+      fullPath: '/book/$bookId'
+      preLoaderRoute: typeof BookBookIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/generate-image': {
       id: '/api/generate-image'
       path: '/api/generate-image'
@@ -89,6 +111,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiGenerateImageRoute: ApiGenerateImageRoute,
+  BookBookIdRoute: BookBookIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

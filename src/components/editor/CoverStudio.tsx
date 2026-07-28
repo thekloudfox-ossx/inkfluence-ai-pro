@@ -234,7 +234,7 @@ export function CoverStudio({
             </div>
           )}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-3">
-            <p className="font-display text-sm text-white/95">{book.title}</p>
+            <p className="font-display text-sm on-media">{book.title}</p>
           </div>
         </div>
         <Button
