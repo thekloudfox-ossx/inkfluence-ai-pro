@@ -246,14 +246,18 @@ function NewBookDialog({
         </div>
 
         <div className="mt-2 flex flex-wrap justify-end gap-2">
-          <Button variant="outline" disabled={busy} onClick={() => build(false)}>
+          <Button variant="ghost" disabled={busy} onClick={() => build(false)}>
             Blank manuscript
           </Button>
-          <Button disabled={busy} onClick={() => build(true)}>
+          <Button variant="outline" disabled={busy} onClick={() => build(true)}>
+            Outline only
+          </Button>
+          <Button disabled={busy} onClick={() => build(true, true)}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-            Draft the outline
+            Write the whole book
           </Button>
         </div>
+
       </DialogContent>
     </Dialog>
   );
