@@ -148,7 +148,7 @@ function NewBookDialog({
   const [chapters, setChapters] = useState(8);
   const [busy, setBusy] = useState(false);
 
-  async function build(withOutline: boolean) {
+  async function build(withOutline: boolean, autodraft = false) {
     if (!topic.trim()) {
       toast.error("Describe the book first.");
       return;
