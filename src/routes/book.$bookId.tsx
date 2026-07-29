@@ -1,19 +1,24 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
   ArrowLeft,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Download,
-  FileDown,
+  Eye,
   Image as ImageIcon,
+  List,
   Loader2,
+  Palette,
   Plus,
-  Printer,
   Settings2,
   Sparkles,
   Trash2,
+  Wand2,
+  Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -21,6 +26,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
@@ -36,7 +43,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -47,39 +53,137 @@ import {
 import { ManuscriptEditor } from "@/components/editor/ManuscriptEditor";
 import { AuditPanel } from "@/components/editor/AuditPanel";
 import { CoverStudio } from "@/components/editor/CoverStudio";
-import { PAGE_TYPES, newPage, useBook, wordCount, type PageType } from "@/lib/books";
+import { BookPreview } from "@/components/editor/BookPreview";
+import { ExportDialog } from "@/components/editor/ExportDialog";
+import {
+  PAGE_SIZES,
+  PAGE_TYPES,
+  newPage,
+  useBook,
+  wordCount,
+  type Book,
+  type PageType,
+} from "@/lib/books";
 import { writePage } from "@/lib/book-ai.functions";
-import { buildHtml, buildMarkdown, download, printBook, slug } from "@/lib/export-book";
 
 export const Route = createFileRoute("/book/$bookId")({
   head: () => ({
     meta: [
-      { title: "Manuscript editor — booksbyvikram" },
+      { title: "Manuscript studio — booksbyvikram" },
       { name: "description", content: "Draft, restructure, humanise and export the manuscript." },
-      { property: "og:title", content: "Manuscript editor — booksbyvikram" },
+      { property: "og:title", content: "Manuscript studio — booksbyvikram" },
       {
         property: "og:description",
         content: "Draft, restructure, humanise and export the manuscript.",
       },
     ],
   }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    autodraft: search.autodraft === true || search.autodraft === "1" ? true : undefined,
+  }),
   component: Editor,
 });
 
+type Tool = "chapters" | "ai" | "voice" | "cover";
+
+const RAIL: { id: Tool; label: string; icon: typeof List }[] = [
+  { id: "chapters", label: "Pages", icon: List },
+  { id: "ai", label: "AI", icon: Wand2 },
+  { id: "voice", label: "Tools", icon: Wrench },
+  { id: "cover", label: "Cover", icon: Palette },
+];
+
 function Editor() {
   const { bookId } = Route.useParams();
+  const { autodraft } = Route.useSearch();
   const { book, ready, update } = useBook(bookId);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [tool, setTool] = useState<Tool>("chapters");
   const [coverOpen, setCoverOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [bulk, setBulk] = useState<string | null>(null);
+  const [instruction, setInstruction] = useState("");
+  const [bulk, setBulk] = useState<{ done: number; total: number; label: string } | null>(null);
+  const [autoStarted, setAutoStarted] = useState(false);
   const write = useServerFn(writePage);
 
-  const activePage = useMemo(
-    () => book?.pages.find((p) => p.id === activeId) ?? book?.pages[0] ?? null,
-    [book, activeId],
-  );
+  const pageIndex = useMemo(() => {
+    if (!book) return 0;
+    const i = book.pages.findIndex((p) => p.id === activeId);
+    return i >= 0 ? i : 0;
+  }, [book, activeId]);
+  const activePage = book?.pages[pageIndex] ?? null;
+
+  async function draftPage(pageId: string, extra = "") {
+    const source = book;
+    if (!source) return;
+    const page = source.pages.find((p) => p.id === pageId);
+    if (!page) return;
+    setBusy(true);
+    try {
+      const text = await write({
+        data: {
+          meta: {
+            title: source.title,
+            subtitle: source.subtitle,
+            author: source.author,
+            topic: source.topic,
+            audience: source.audience,
+            tone: source.tone,
+          },
+          pageType: page.type,
+          pageTitle: page.title,
+          brief: page.brief,
+          outline: source.pages.filter((p) => p.type === "chapter").map((p) => p.title),
+          words: page.type === "chapter" ? 1400 : 600,
+          existing: extra ? page.content : "",
+          instruction: extra,
+        },
+      });
+      update((draft) => ({
+        ...draft,
+        pages: draft.pages.map((p) => (p.id === pageId ? { ...p, content: text } : p)),
+      }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Drafting failed.");
+      throw error;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function draftAll() {
+    const source = book;
+    if (!source) return;
+    const targets = source.pages.filter(
+      (p) => PAGE_TYPES.find((t) => t.type === p.type)?.generative && !p.content.trim(),
+    );
+    if (targets.length === 0) {
+      toast.info("Every writable page already has a draft.");
+      return;
+    }
+    try {
+      for (let i = 0; i < targets.length; i += 1) {
+        setBulk({ done: i, total: targets.length, label: targets[i].title });
+        await draftPage(targets[i].id);
+      }
+      toast.success("Full draft complete.");
+    } catch {
+      /* error already surfaced */
+    } finally {
+      setBulk(null);
+    }
+  }
+
+  // One-prompt books: the library hands the studio a fresh outline and it writes itself.
+  useEffect(() => {
+    if (!ready || !book || !autodraft || autoStarted) return;
+    setAutoStarted(true);
+    void draftAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, book, autodraft, autoStarted]);
 
   if (!ready) return <Centered>Loading…</Centered>;
   if (!book)
@@ -92,9 +196,18 @@ function Editor() {
       </Centered>
     );
 
-  const totalWords = book.pages.reduce((s, p) => s + wordCount(p.content), 0);
+  const included = book.pages.filter((p) => p.include !== false);
+  const totalWords = included.reduce((s, p) => s + wordCount(p.content), 0);
+  const chapterCount = included.filter((p) => p.type === "chapter").length;
 
-  function patchPage(id: string, patch: Partial<{ title: string; brief: string; content: string }>) {
+  function patchBook(patch: Partial<Book>) {
+    update((d) => ({ ...d, ...patch }));
+  }
+
+  function patchPage(
+    id: string,
+    patch: Partial<{ title: string; brief: string; content: string; include: boolean }>,
+  ) {
     update((draft) => ({
       ...draft,
       pages: draft.pages.map((p) => (p.id === id ? { ...p, ...patch } : p)),
@@ -109,6 +222,7 @@ function Editor() {
       return { ...draft, pages };
     });
     setActiveId(page.id);
+    setTool("chapters");
   }
 
   function movePage(index: number, delta: number) {
@@ -125,51 +239,8 @@ function Editor() {
     update((draft) => ({ ...draft, pages: draft.pages.filter((p) => p.id !== id) }));
   }
 
-  async function draftPage(pageId: string, instruction = "") {
-    const page = book!.pages.find((p) => p.id === pageId);
-    if (!page) return;
-    setBusy(true);
-    try {
-      const text = await write({
-        data: {
-          meta: {
-            title: book!.title,
-            subtitle: book!.subtitle,
-            author: book!.author,
-            topic: book!.topic,
-            audience: book!.audience,
-            tone: book!.tone,
-          },
-          pageType: page.type,
-          pageTitle: page.title,
-          brief: page.brief,
-          outline: book!.pages.filter((p) => p.type === "chapter").map((p) => p.title),
-          words: page.type === "chapter" ? 1400 : 600,
-          existing: instruction ? page.content : "",
-          instruction,
-        },
-      });
-      patchPage(pageId, { content: text });
-      toast.success(`“${page.title}” drafted.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Drafting failed.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function draftAll() {
-    const targets = book!.pages.filter(
-      (p) => PAGE_TYPES.find((t) => t.type === p.type)?.generative && !p.content.trim(),
-    );
-    if (targets.length === 0) return toast.info("Every writable page already has a draft.");
-    for (let i = 0; i < targets.length; i += 1) {
-      setBulk(`Writing ${i + 1} of ${targets.length}: ${targets[i].title}`);
-      await draftPage(targets[i].id);
-    }
-    setBulk(null);
-    toast.success("Full draft complete.");
-  }
+  const chars = activePage?.content.length ?? 0;
+  const pageWords = wordCount(activePage?.content ?? "");
 
   return (
     <div className="flex h-screen flex-col bg-background">
@@ -182,117 +253,205 @@ function Editor() {
         <div className="min-w-0 flex-1">
           <input
             value={book.title}
-            onChange={(e) => update((d) => ({ ...d, title: e.target.value }))}
+            onChange={(e) => patchBook({ title: e.target.value })}
             className="w-full truncate bg-transparent font-display text-lg outline-none"
           />
           <p className="text-xs text-muted-foreground">
-            {book.pages.length} pages · {totalWords.toLocaleString()} words
+            by {book.author || "unknown"} · {chapterCount} chapters ·{" "}
+            {totalWords.toLocaleString()} words · ~{Math.max(1, Math.round(totalWords / 250))} pages
           </p>
         </div>
 
-        <Button variant="outline" size="sm" onClick={() => setCoverOpen(true)}>
-          <ImageIcon className="size-4" /> Cover
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
+        <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(true)}>
           <Settings2 className="size-4" /> Setup
         </Button>
-        <Button size="sm" disabled={busy} onClick={draftAll}>
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-          Draft whole book
+        <Button variant="outline" size="sm" onClick={() => setPreviewOpen(true)}>
+          <Eye className="size-4" /> Preview
         </Button>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="secondary" size="sm">
-              <Download className="size-4" /> Export
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-              Trim size and author details live in Setup
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => printBook(book)}>
-              <Printer className="size-4" /> Print / save as PDF
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                download(`${slug(book.title)}.html`, buildHtml(book), "text/html")
-              }
-            >
-              <FileDown className="size-4" /> Typeset HTML
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                download(`${slug(book.title)}.md`, buildMarkdown(book), "text/markdown")
-              }
-            >
-              <FileDown className="size-4" /> Markdown manuscript
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button size="sm" onClick={() => setExportOpen(true)}>
+          <Download className="size-4" /> Export
+        </Button>
       </header>
 
       {bulk && (
-        <div className="shrink-0 border-b border-border bg-accent px-4 py-1.5 text-xs text-accent-foreground">
-          {bulk}
+        <div className="shrink-0 border-b border-border bg-accent px-4 py-2 text-xs text-accent-foreground">
+          <div className="flex items-center justify-between">
+            <span>
+              Writing {bulk.done + 1} of {bulk.total}: {bulk.label}
+            </span>
+            <span>{Math.round((bulk.done / bulk.total) * 100)}%</span>
+          </div>
+          <Progress value={(bulk.done / bulk.total) * 100} className="mt-1.5 h-1" />
         </div>
       )}
 
       <div className="flex min-h-0 flex-1">
-        {/* Compact page rail */}
-        <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-sidebar">
-          <div className="flex items-center justify-between px-3 py-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Pages
-            </span>
-            <AddPageMenu onPick={(t) => insertPage(t, book.pages.length)} />
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
-            {book.pages.map((page, index) => {
-              const active = activePage?.id === page.id;
-              return (
-                <div key={page.id} className="group/page">
-                  <button
-                    onClick={() => setActiveId(page.id)}
-                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${
-                      active
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                        : "hover:bg-sidebar-accent/60"
-                    }`}
-                  >
-                    <span className="w-4 shrink-0 text-[10px] text-muted-foreground">
-                      {index + 1}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate">{page.title}</span>
-                    {page.content.trim() ? (
-                      <span className="size-1.5 shrink-0 rounded-full bg-brass" />
-                    ) : null}
-                  </button>
-                  <div className="hidden items-center gap-0.5 px-6 pb-1 group-hover/page:flex">
-                    <IconMini onClick={() => movePage(index, -1)} title="Move up">
-                      <ChevronUp className="size-3" />
-                    </IconMini>
-                    <IconMini onClick={() => movePage(index, 1)} title="Move down">
-                      <ChevronDown className="size-3" />
-                    </IconMini>
-                    <AddPageMenu compact onPick={(t) => insertPage(t, index + 1)} />
-                    <IconMini onClick={() => deletePage(page.id)} title="Delete">
-                      <Trash2 className="size-3" />
-                    </IconMini>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        {/* Icon rail */}
+        <nav className="flex w-[68px] shrink-0 flex-col items-center gap-1 border-r border-border bg-sidebar py-3">
+          {RAIL.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => (item.id === "cover" ? setCoverOpen(true) : setTool(item.id))}
+              className={`flex w-14 flex-col items-center gap-1 rounded-md py-2 text-[10px] ${
+                tool === item.id && item.id !== "cover"
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/60"
+              }`}
+            >
+              <item.icon className="size-4" />
+              {item.label}
+            </button>
+          ))}
+          <div className="my-1 h-px w-8 bg-border" />
+          <button
+            onClick={() => setExportOpen(true)}
+            className="flex w-14 flex-col items-center gap-1 rounded-md py-2 text-[10px] text-muted-foreground hover:bg-sidebar-accent/60"
+          >
+            <Download className="size-4" />
+            Export
+          </button>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="flex w-14 flex-col items-center gap-1 rounded-md py-2 text-[10px] text-muted-foreground hover:bg-sidebar-accent/60"
+          >
+            <Settings2 className="size-4" />
+            Settings
+          </button>
+        </nav>
+
+        {/* Tool panel */}
+        <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-sidebar md:flex">
+          {tool === "chapters" && (
+            <>
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Pages
+                </span>
+                <AddPageMenu onPick={(t) => insertPage(t, book.pages.length)} />
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+                {book.pages.map((page, index) => {
+                  const active = activePage?.id === page.id;
+                  return (
+                    <div key={page.id} className="group/page">
+                      <button
+                        onClick={() => setActiveId(page.id)}
+                        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${
+                          active
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                            : "hover:bg-sidebar-accent/60"
+                        } ${page.include === false ? "opacity-50" : ""}`}
+                      >
+                        <span className="w-4 shrink-0 text-[10px] text-muted-foreground">
+                          {index + 1}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{page.title}</span>
+                        {page.content.trim() ? (
+                          <span className="size-1.5 shrink-0 rounded-full bg-brass" />
+                        ) : null}
+                      </button>
+                      <div className="hidden items-center gap-0.5 px-6 pb-1 group-hover/page:flex">
+                        <IconMini onClick={() => movePage(index, -1)} title="Move up">
+                          <ChevronUp className="size-3" />
+                        </IconMini>
+                        <IconMini onClick={() => movePage(index, 1)} title="Move down">
+                          <ChevronDown className="size-3" />
+                        </IconMini>
+                        <AddPageMenu compact onPick={(t) => insertPage(t, index + 1)} />
+                        <IconMini onClick={() => deletePage(page.id)} title="Delete">
+                          <Trash2 className="size-3" />
+                        </IconMini>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {tool === "ai" && (
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+              <p className="text-xs text-muted-foreground">
+                The studio writes from the brief on each page, under house rules that ban em dashes
+                and stock phrasing.
+              </p>
+              <Button className="w-full" disabled={busy || !!bulk} onClick={draftAll}>
+                {busy ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Sparkles className="size-4" />
+                )}
+                Write the whole book
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full"
+                disabled={busy || !activePage}
+                onClick={() => activePage && draftPage(activePage.id)}
+              >
+                {activePage?.content.trim() ? "Rewrite this page" : "Write this page"}
+              </Button>
+              <div className="space-y-2 border-t border-border pt-4">
+                <Label className="text-xs">Tell it exactly what to change</Label>
+                <Textarea
+                  rows={4}
+                  value={instruction}
+                  onChange={(e) => setInstruction(e.target.value)}
+                  placeholder="Cut the hedging, open with the 2019 pricing mistake, keep it under 1,200 words."
+                />
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  disabled={busy || !activePage || !instruction.trim()}
+                  onClick={() => activePage && draftPage(activePage.id, instruction)}
+                >
+                  Apply to this page
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {tool === "voice" && (
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              {activePage ? (
+                <AuditPanel
+                  text={activePage.content}
+                  onReplace={(next) => patchPage(activePage.id, { content: next })}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">Select a page first.</p>
+              )}
+            </div>
+          )}
         </aside>
 
-        {/* Page */}
+        {/* Cover column */}
+        <aside className="hidden w-[230px] shrink-0 flex-col gap-3 border-r border-border bg-background p-4 xl:flex">
+          <div className="surface flex aspect-[2/3] items-center justify-center overflow-hidden rounded-md">
+            {book.coverUrl ? (
+              <img
+                src={book.coverUrl}
+                alt={`${book.title} cover`}
+                className="size-full object-cover"
+              />
+            ) : (
+              <div className="px-4 text-center text-xs text-muted-foreground">
+                <ImageIcon className="mx-auto mb-2 size-5" />
+                No cover yet
+              </div>
+            )}
+          </div>
+          <Button variant="outline" onClick={() => setCoverOpen(true)}>
+            Edit cover
+          </Button>
+        </aside>
+
+        {/* Page editor */}
         <main className="flex min-w-0 flex-1 flex-col bg-paper">
           {activePage ? (
             <>
               <div className="flex flex-wrap items-center gap-2 border-b border-border px-6 py-3">
-                <Badge variant="outline" className="capitalize">
+                <Badge variant="outline">
                   {PAGE_TYPES.find((t) => t.type === activePage.type)?.label}
                 </Badge>
                 <input
@@ -300,9 +459,54 @@ function Editor() {
                   onChange={(e) => patchPage(activePage.id, { title: e.target.value })}
                   className="min-w-0 flex-1 bg-transparent font-display text-xl outline-none"
                 />
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                  <Checkbox
+                    checked={activePage.include !== false}
+                    onCheckedChange={(v) => patchPage(activePage.id, { include: v === true })}
+                  />
+                  Include in exported book
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between border-b border-border px-6 py-1.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={pageIndex === 0}
+                  onClick={() => setActiveId(book.pages[pageIndex - 1].id)}
+                >
+                  <ChevronLeft className="size-4" /> Previous
+                </Button>
+                <input
+                  value={activePage.brief}
+                  onChange={(e) => patchPage(activePage.id, { brief: e.target.value })}
+                  placeholder="Brief: what this page must cover…"
+                  className="mx-4 min-w-0 flex-1 bg-transparent text-center text-xs text-muted-foreground outline-none"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={pageIndex >= book.pages.length - 1}
+                  onClick={() => setActiveId(book.pages[pageIndex + 1].id)}
+                >
+                  Next <ChevronRight className="size-4" />
+                </Button>
+              </div>
+
+              <ManuscriptEditor
+                value={activePage.content}
+                onChange={(v) => patchPage(activePage.id, { content: v })}
+                placeholder="Write here, or let the studio draft it."
+              />
+
+              <div className="flex shrink-0 items-center gap-4 border-t border-border px-6 py-2 text-xs text-muted-foreground">
+                <span>{pageWords.toLocaleString()} words</span>
+                <span>{chars.toLocaleString()} characters</span>
+                <span>~{Math.max(1, Math.round(pageWords / 220))} min read</span>
                 <Button
                   size="sm"
-                  variant="outline"
+                  variant="ghost"
+                  className="ml-auto"
                   disabled={busy}
                   onClick={() => draftPage(activePage.id)}
                 >
@@ -314,59 +518,42 @@ function Editor() {
                   {activePage.content.trim() ? "Rewrite" : "Write this page"}
                 </Button>
               </div>
-              <input
-                value={activePage.brief}
-                onChange={(e) => patchPage(activePage.id, { brief: e.target.value })}
-                placeholder="Brief: what this page must cover…"
-                className="border-b border-border bg-transparent px-6 py-2 text-sm text-muted-foreground outline-none"
-              />
-              <ManuscriptEditor
-                value={activePage.content}
-                onChange={(v) => patchPage(activePage.id, { content: v })}
-                placeholder="Write here, or let the studio draft it."
-              />
             </>
           ) : (
             <Centered>Add a page to begin.</Centered>
           )}
         </main>
-
-        {/* Right rail */}
-        <aside className="hidden w-80 shrink-0 flex-col border-l border-border bg-sidebar lg:flex">
-          <Tabs defaultValue="voice" className="flex min-h-0 flex-1 flex-col">
-            <TabsList className="m-2">
-              <TabsTrigger value="voice">Voice check</TabsTrigger>
-              <TabsTrigger value="preview">Preview</TabsTrigger>
-            </TabsList>
-            <TabsContent value="voice" className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-              {activePage && (
-                <AuditPanel
-                  text={activePage.content}
-                  onReplace={(next) => patchPage(activePage.id, { content: next })}
-                />
-              )}
-            </TabsContent>
-            <TabsContent value="preview" className="min-h-0 flex-1 overflow-y-auto p-4">
-              <div
-                className="surface manuscript rounded-sm p-5 [&_h3]:font-display [&_h3]:text-base [&_p]:mb-3"
-                dangerouslySetInnerHTML={{
-                  __html: activePage
-                    ? `<h3>${activePage.title}</h3>` +
-                      buildHtml({ ...book, pages: [activePage] })
-                        .split("<body>")[1]
-                        .replace("</body></html>", "")
-                    : "",
-                }}
-              />
-            </TabsContent>
-          </Tabs>
-        </aside>
       </div>
+
+      <BookPreview
+        book={book}
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        onEditCover={() => {
+          setPreviewOpen(false);
+          setCoverOpen(true);
+        }}
+        onExport={() => {
+          setPreviewOpen(false);
+          setExportOpen(true);
+        }}
+      />
+
+      <ExportDialog
+        book={book}
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        onPatch={patchBook}
+        onEditCover={() => {
+          setExportOpen(false);
+          setCoverOpen(true);
+        }}
+      />
 
       <Dialog open={coverOpen} onOpenChange={setCoverOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle className="font-display text-xl">Cover studio</DialogTitle>
+            <DialogTitle className="font-display text-xl">Cover designer</DialogTitle>
             <DialogDescription>
               Search styles by name or mood, or have the studio art-direct six options for this
               book.
@@ -375,7 +562,7 @@ function Editor() {
           <CoverStudio
             book={book}
             onApply={(url) => {
-              update((d) => ({ ...d, coverUrl: url }));
+              patchBook({ coverUrl: url });
               setCoverOpen(false);
               toast.success("Cover applied.");
             }}
@@ -395,41 +582,35 @@ function Editor() {
             <Field label="Subtitle">
               <Input
                 value={book.subtitle}
-                onChange={(e) => update((d) => ({ ...d, subtitle: e.target.value }))}
+                onChange={(e) => patchBook({ subtitle: e.target.value })}
               />
             </Field>
             <Field label="Author">
-              <Input
-                value={book.author}
-                onChange={(e) => update((d) => ({ ...d, author: e.target.value }))}
-              />
+              <Input value={book.author} onChange={(e) => patchBook({ author: e.target.value })} />
             </Field>
             <Field label="Topic">
               <Textarea
                 rows={2}
                 value={book.topic}
-                onChange={(e) => update((d) => ({ ...d, topic: e.target.value }))}
+                onChange={(e) => patchBook({ topic: e.target.value })}
               />
             </Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Reader">
                 <Input
                   value={book.audience}
-                  onChange={(e) => update((d) => ({ ...d, audience: e.target.value }))}
+                  onChange={(e) => patchBook({ audience: e.target.value })}
                 />
               </Field>
-              <Field label="Trim size">
-                <Select
-                  value={book.trim}
-                  onValueChange={(v) => update((d) => ({ ...d, trim: v }))}
-                >
+              <Field label="Page size">
+                <Select value={book.trim} onValueChange={(v) => patchBook({ trim: v })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {['5" x 8"', '5.5" x 8.5"', '6" x 9"', '7" x 10"', '8.5" x 11"'].map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {t}
+                    {PAGE_SIZES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        {t.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -437,10 +618,7 @@ function Editor() {
               </Field>
             </div>
             <Field label="Voice">
-              <Input
-                value={book.tone}
-                onChange={(e) => update((d) => ({ ...d, tone: e.target.value }))}
-              />
+              <Input value={book.tone} onChange={(e) => patchBook({ tone: e.target.value })} />
             </Field>
           </div>
         </DialogContent>
