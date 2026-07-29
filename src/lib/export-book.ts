@@ -1,4 +1,4 @@
-import type { Book, Page } from "./books";
+import { exportOptsOf, type Book, type ExportOpts, type Page } from "./books";
 
 function esc(s: string) {
   return s
