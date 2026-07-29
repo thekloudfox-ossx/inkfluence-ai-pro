@@ -37,6 +37,38 @@ export type Page = {
   title: string;
   brief: string;
   content: string;
+  /** Undefined counts as included, so older saved books keep working. */
+  include?: boolean;
+};
+
+export const PAGE_SIZES = [
+  { label: 'US Letter (8.5" x 11")', value: '8.5" x 11"' },
+  { label: 'Trade (6" x 9")', value: '6" x 9"', tag: "KDP" },
+  { label: 'Workbook (7" x 10")', value: '7" x 10"' },
+  { label: 'Large (8" x 10")', value: '8" x 10"' },
+  { label: 'Digest (5.5" x 8.5")', value: '5.5" x 8.5"' },
+  { label: 'Pocket (5" x 8")', value: '5" x 8"' },
+  { label: 'A5 (5.83" x 8.27")', value: '5.83" x 8.27"' },
+  { label: 'B5 (7.17" x 10.12")', value: '7.17" x 10.12"' },
+  { label: 'A4 (8.27" x 11.69")', value: '8.27" x 11.69"' },
+];
+
+export type ExportOpts = {
+  toc: boolean;
+  tocSubheads: boolean;
+  copyright: boolean;
+  chapterNumbers: "arabic" | "roman" | "none";
+  dropCaps: boolean;
+  pageNumbers: boolean;
+};
+
+export const DEFAULT_EXPORT: ExportOpts = {
+  toc: true,
+  tocSubheads: false,
+  copyright: true,
+  chapterNumbers: "arabic",
+  dropCaps: false,
+  pageNumbers: true,
 };
 
 export type Book = {
@@ -52,7 +84,14 @@ export type Book = {
   createdAt: number;
   updatedAt: number;
   pages: Page[];
+  exportOpts?: ExportOpts;
 };
+
+export const exportOptsOf = (book: Book): ExportOpts => ({
+  ...DEFAULT_EXPORT,
+  ...(book.exportOpts ?? {}),
+});
+
 
 const KEY = "bbv.books.v1";
 
@@ -79,7 +118,7 @@ export function emptyBook(partial: Partial<Book> = {}): Book {
 
 export function newPage(type: PageType, title = ""): Page {
   const label = PAGE_TYPES.find((p) => p.type === type)?.label ?? "Page";
-  return { id: uid(), type, title: title || label, brief: "", content: "" };
+  return { id: uid(), type, title: title || label, brief: "", content: "", include: true };
 }
 
 function read(): Book[] {

@@ -148,7 +148,7 @@ function NewBookDialog({
   const [chapters, setChapters] = useState(8);
   const [busy, setBusy] = useState(false);
 
-  async function build(withOutline: boolean) {
+  async function build(withOutline: boolean, autodraft = false) {
     if (!topic.trim()) {
       toast.error("Describe the book first.");
       return;
@@ -175,7 +175,12 @@ function NewBookDialog({
 
       onCreate(book);
       setOpen(false);
-      navigate({ to: "/book/$bookId", params: { bookId: book.id } });
+      navigate({
+        to: "/book/$bookId",
+        params: { bookId: book.id },
+        search: autodraft ? { autodraft: true } : {},
+      });
+
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not build the outline.");
     } finally {
@@ -241,14 +246,18 @@ function NewBookDialog({
         </div>
 
         <div className="mt-2 flex flex-wrap justify-end gap-2">
-          <Button variant="outline" disabled={busy} onClick={() => build(false)}>
+          <Button variant="ghost" disabled={busy} onClick={() => build(false)}>
             Blank manuscript
           </Button>
-          <Button disabled={busy} onClick={() => build(true)}>
+          <Button variant="outline" disabled={busy} onClick={() => build(true)}>
+            Outline only
+          </Button>
+          <Button disabled={busy} onClick={() => build(true, true)}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-            Draft the outline
+            Write the whole book
           </Button>
         </div>
+
       </DialogContent>
     </Dialog>
   );

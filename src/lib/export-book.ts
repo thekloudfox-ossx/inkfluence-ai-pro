@@ -1,4 +1,4 @@
-import type { Book, Page } from "./books";
+import { exportOptsOf, type Book, type ExportOpts, type Page } from "./books";
 
 function esc(s: string) {
   return s
@@ -35,7 +35,39 @@ function inline(s: string) {
     .replace(/(^|\W)\*(?!\s)(.+?)\*(?=\W|$)/g, "$1<em>$2</em>");
 }
 
-function pageHtml(book: Book, page: Page, index: number) {
+const ROMAN: [number, string][] = [
+  [10, "X"],
+  [9, "IX"],
+  [5, "V"],
+  [4, "IV"],
+  [1, "I"],
+];
+
+function roman(n: number) {
+  let out = "";
+  let left = n;
+  for (const [v, s] of ROMAN) {
+    while (left >= v) {
+      out += s;
+      left -= v;
+    }
+  }
+  return out;
+}
+
+function chapterLabel(index: number, style: ExportOpts["chapterNumbers"]) {
+  if (style === "none") return "";
+  return `<span class="chapter-num">Chapter ${style === "roman" ? roman(index) : index}</span>`;
+}
+
+function subheads(text: string) {
+  return text
+    .split("\n")
+    .filter((l) => l.trim().startsWith("## "))
+    .map((l) => l.trim().slice(3));
+}
+
+function pageHtml(book: Book, page: Page, index: number, opts: ExportOpts, pages: Page[]) {
   if (page.type === "blank") return `<section class="page blank"></section>`;
   if (page.type === "title") {
     return `<section class="page title-page">
@@ -51,9 +83,17 @@ function pageHtml(book: Book, page: Page, index: number) {
     </section>`;
   }
   if (page.type === "toc") {
-    const items = book.pages
+    const items = pages
       .filter((p) => ["chapter", "part", "introduction", "conclusion"].includes(p.type))
-      .map((p) => `<li>${esc(p.title)}</li>`)
+      .map((p) => {
+        const kids =
+          opts.tocSubheads && subheads(p.content).length
+            ? `<ul class="toc-sub">${subheads(p.content)
+                .map((s) => `<li>${esc(s)}</li>`)
+                .join("")}</ul>`
+            : "";
+        return `<li>${esc(p.title)}${kids}</li>`;
+      })
       .join("");
     return `<section class="page"><h2>Contents</h2><ol class="toc">${items}</ol></section>`;
   }
@@ -61,19 +101,31 @@ function pageHtml(book: Book, page: Page, index: number) {
     return `<section class="page part"><h2>${esc(page.title)}</h2></section>`;
   }
   return `<section class="page">
-    <h2>${page.type === "chapter" ? `<span class="chapter-num">Chapter ${index}</span>` : ""}${esc(page.title)}</h2>
+    <h2>${page.type === "chapter" ? chapterLabel(index, opts.chapterNumbers) : ""}${esc(page.title)}</h2>
     ${renderBody(page.content)}
   </section>`;
 }
 
-export function buildHtml(book: Book) {
+export function buildHtml(book: Book, override?: Partial<ExportOpts>) {
+  const opts = { ...exportOptsOf(book), ...(override ?? {}) };
+  const pages = book.pages.filter((p) => {
+    if (p.include === false) return false;
+    if (p.type === "toc" && !opts.toc) return false;
+    if (p.type === "copyright" && !opts.copyright) return false;
+    return true;
+  });
+
   let chapterIndex = 0;
-  const body = book.pages
+  const body = pages
     .map((p) => {
       if (p.type === "chapter") chapterIndex += 1;
-      return pageHtml(book, p, chapterIndex);
+      return pageHtml(book, p, chapterIndex, opts, pages);
     })
     .join("\n");
+
+  const cover = book.coverUrl
+    ? `<section class="page cover"><img src="${esc(book.coverUrl)}" alt="${esc(book.title)} cover"/></section>`
+    : "";
 
   const [w, h] = book.trim.replace(/"/g, "").split("x").map((s) => s.trim());
 
@@ -81,14 +133,23 @@ export function buildHtml(book: Book) {
 <html lang="en"><head><meta charset="utf-8"/>
 <title>${esc(book.title)}</title>
 <style>
-  @page { size: ${w}in ${h}in; margin: 0.75in 0.7in; }
+  @page { size: ${w}in ${h}in; margin: 0.75in 0.7in; ${
+    opts.pageNumbers ? '@bottom-center { content: counter(page); }' : ""
+  } }
   body { font-family: Georgia, "Times New Roman", serif; color: #14110d; line-height: 1.65; font-size: 11.5pt; margin: 0; }
   .page { page-break-after: always; }
   .page.blank { min-height: 60vh; }
+  .cover { text-align: center; }
+  .cover img { max-width: 100%; }
   h1 { font-size: 30pt; margin: 0 0 .3em; }
   h2 { font-size: 18pt; margin: 0 0 1em; }
   h3 { font-size: 13pt; margin: 1.6em 0 .4em; }
   p { margin: 0 0 1em; text-align: justify; }
+  ${
+    opts.dropCaps
+      ? ".page > p:first-of-type::first-letter { float: left; font-size: 42pt; line-height: .8; padding: 4px 6px 0 0; }"
+      : ""
+  }
   blockquote { margin: 1.4em 1.2em; font-style: italic; border-left: 2px solid #bbb; padding-left: 1em; }
   .title-page { text-align: center; padding-top: 22%; }
   .subtitle { font-style: italic; font-size: 13pt; }
@@ -98,9 +159,11 @@ export function buildHtml(book: Book) {
   .small { font-size: 9.5pt; color: #4a443c; }
   .toc { padding-left: 1.2em; }
   .toc li { margin-bottom: .4em; }
+  .toc-sub { list-style: none; padding-left: 0; margin: .3em 0 .6em; font-size: 10pt; color: #5c554b; }
 </style></head>
-<body>${body}</body></html>`;
+<body>${cover}${body}</body></html>`;
 }
+
 
 export function buildMarkdown(book: Book) {
   const parts = [`# ${book.title}`, book.subtitle, `_by ${book.author}_`, ""];
