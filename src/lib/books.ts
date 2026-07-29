@@ -118,7 +118,7 @@ export function emptyBook(partial: Partial<Book> = {}): Book {
 
 export function newPage(type: PageType, title = ""): Page {
   const label = PAGE_TYPES.find((p) => p.type === type)?.label ?? "Page";
-  return { id: uid(), type, title: title || label, brief: "", content: "" };
+  return { id: uid(), type, title: title || label, brief: "", content: "", include: true };
 }
 
 function read(): Book[] {
