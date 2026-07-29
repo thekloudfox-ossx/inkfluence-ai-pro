@@ -175,7 +175,12 @@ function NewBookDialog({
 
       onCreate(book);
       setOpen(false);
-      navigate({ to: "/book/$bookId", params: { bookId: book.id } });
+      navigate({
+        to: "/book/$bookId",
+        params: { bookId: book.id },
+        search: autodraft ? { autodraft: true } : {},
+      });
+
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not build the outline.");
     } finally {
