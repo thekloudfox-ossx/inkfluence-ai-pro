@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { BookOpen, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
+import { BookOpen, FileUp, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
@@ -16,8 +16,10 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
+import { ImportDialog } from "@/components/editor/ImportDialog";
 import { emptyBook, newPage, useLibrary, wordCount, type Book } from "@/lib/books";
 import { generateOutline } from "@/lib/book-ai.functions";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -40,6 +42,7 @@ export const Route = createFileRoute("/")({
 function Library() {
   const { books, ready, create, remove } = useLibrary();
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   return (
     <main className="min-h-screen bg-background">
@@ -56,9 +59,16 @@ function Library() {
               </p>
             </div>
           </div>
-          <NewBookDialog open={open} setOpen={setOpen} onCreate={create} />
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <FileUp className="size-4" /> Import my writing
+            </Button>
+            <NewBookDialog open={open} setOpen={setOpen} onCreate={create} />
+          </div>
         </div>
       </header>
+
+      <ImportDialog open={importOpen} onOpenChange={setImportOpen} onCreate={create} />
 
       <section className="mx-auto max-w-5xl px-6 py-10">
         <h2 className="font-display text-2xl">Shelf</h2>
@@ -70,12 +80,17 @@ function Library() {
           <div className="mt-8 surface rounded-lg p-10 text-center">
             <p className="font-display text-lg">No manuscripts yet.</p>
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-              Start one and the studio drafts an outline, writes each page in your voice, then
-              audits the result for machine-written tells before you export.
+              Paste writing you already have and it becomes a typeset, exportable book with your own
+              cover. Or start from a topic and let the studio draft it.
             </p>
-            <Button className="mt-6" onClick={() => setOpen(true)}>
-              <Plus className="size-4" /> Start a manuscript
-            </Button>
+            <div className="mt-6 flex flex-wrap justify-center gap-2">
+              <Button onClick={() => setImportOpen(true)}>
+                <FileUp className="size-4" /> Import my writing
+              </Button>
+              <Button variant="outline" onClick={() => setOpen(true)}>
+                <Plus className="size-4" /> Start from a topic
+              </Button>
+            </div>
           </div>
         )}
 
@@ -86,6 +101,7 @@ function Library() {
         </div>
       </section>
     </main>
+
   );
 }
 

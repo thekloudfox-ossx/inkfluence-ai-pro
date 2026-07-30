@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
   ArrowLeft,
@@ -65,6 +65,8 @@ import {
   type PageType,
 } from "@/lib/books";
 import { writePage } from "@/lib/book-ai.functions";
+import { readImageFile } from "@/lib/import-manuscript";
+
 
 export const Route = createFileRoute("/book/$bookId")({
   head: () => ({
@@ -108,6 +110,8 @@ function Editor() {
   const [bulk, setBulk] = useState<{ done: number; total: number; label: string } | null>(null);
   const [autoStarted, setAutoStarted] = useState(false);
   const write = useServerFn(writePage);
+  const coverFileRef = useRef<HTMLInputElement>(null);
+
 
   const pageIndex = useMemo(() => {
     if (!book) return 0;
@@ -444,7 +448,30 @@ function Editor() {
           <Button variant="outline" onClick={() => setCoverOpen(true)}>
             Edit cover
           </Button>
+          <Button variant="ghost" size="sm" onClick={() => coverFileRef.current?.click()}>
+            <ImageIcon className="size-4" /> Upload my cover
+          </Button>
+          <input
+            ref={coverFileRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              readImageFile(file)
+                .then((url) => {
+                  patchBook({ coverUrl: url });
+                  toast.success("Cover uploaded.");
+                })
+                .catch((error: unknown) =>
+                  toast.error(error instanceof Error ? error.message : "Upload failed."),
+                );
+              e.target.value = "";
+            }}
+          />
         </aside>
+
 
         {/* Page editor */}
         <main className="flex min-w-0 flex-1 flex-col bg-paper">
