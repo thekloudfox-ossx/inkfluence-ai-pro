@@ -444,7 +444,30 @@ function Editor() {
           <Button variant="outline" onClick={() => setCoverOpen(true)}>
             Edit cover
           </Button>
+          <Button variant="ghost" size="sm" onClick={() => coverFileRef.current?.click()}>
+            <ImageIcon className="size-4" /> Upload my cover
+          </Button>
+          <input
+            ref={coverFileRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              readImageFile(file)
+                .then((url) => {
+                  patchBook({ coverUrl: url });
+                  toast.success("Cover uploaded.");
+                })
+                .catch((error: unknown) =>
+                  toast.error(error instanceof Error ? error.message : "Upload failed."),
+                );
+              e.target.value = "";
+            }}
+          />
         </aside>
+
 
         {/* Page editor */}
         <main className="flex min-w-0 flex-1 flex-col bg-paper">
