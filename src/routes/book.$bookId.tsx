@@ -110,6 +110,8 @@ function Editor() {
   const [bulk, setBulk] = useState<{ done: number; total: number; label: string } | null>(null);
   const [autoStarted, setAutoStarted] = useState(false);
   const write = useServerFn(writePage);
+  const coverFileRef = useRef<HTMLInputElement>(null);
+
 
   const pageIndex = useMemo(() => {
     if (!book) return 0;
