@@ -65,6 +65,8 @@ import {
   type PageType,
 } from "@/lib/books";
 import { writePage } from "@/lib/book-ai.functions";
+import { readImageFile } from "@/lib/import-manuscript";
+
 
 export const Route = createFileRoute("/book/$bookId")({
   head: () => ({
