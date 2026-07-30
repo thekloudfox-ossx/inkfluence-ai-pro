@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { BookOpen, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
+import { BookOpen, FileUp, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
@@ -16,8 +16,10 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
+import { ImportDialog } from "@/components/editor/ImportDialog";
 import { emptyBook, newPage, useLibrary, wordCount, type Book } from "@/lib/books";
 import { generateOutline } from "@/lib/book-ai.functions";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
